@@ -1,0 +1,27 @@
+{
+  "name": "learn",
+  "version": "1.0.0",
+  "description": "",
+  "main": "app.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node app.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0",
+    "@langchain/core": "^0.3.18",
+    "@pinecone-database/pinecone": "^4.0.0",
+    "chalk": "^4.1.2",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "langchain": "^0.3.6",
+    "mime-types": "^2.1.35",
+    "nodemon": "^3.1.7",
+    "request": "^2.88.2",
+    "validator": "^13.12.0",
+    "whisper-asr": "^0.0.2"
+  }
+}
