@@ -7,13 +7,10 @@ import path from "path";
 import https from "https";
 import mime from "mime-types";
 import { fileURLToPath } from "url";
-import { Queue } from "bullmq";
-import crypto from "crypto";
-import worker from "./worker.js";
 
 // Create __dirname equivalent in ES Modules
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename, "utf-8");
+const __dirname = path.dirname(__filename);
 
 const API_KEY = process.env.API_KEY; // Add your API key in the .env file
 const genAI = new GoogleGenerativeAI(API_KEY);
@@ -23,16 +20,7 @@ const model2 = genAI.getGenerativeModel({ model: "text-embedding-004" });
 // const pinecone = new PineconeClient();
 const pc = new Pinecone({ apiKey: process.env.PINECONE_API_KEY });
 
-// Create Queue for the transcription
-const transcribeQueue = new Queue("transcribe", {
-  connection: {
-    host: process.env.REDIS_HOST,
-    port: Number(process.env.REDIS_PORT),
-  },
-  defaultJobOptions: { removeOnComplete: true },
-});
-
-export const embedText = async (text, filePath) => {
+const embedText = async (text, filePath) => {
   try {
     // Generate embeddings using Google Gemini
     const result = await model2.embedContent(text);
@@ -55,7 +43,7 @@ export const embedText = async (text, filePath) => {
   }
 };
 
-export const storeInPinecone = async (id, embedding) => {
+const storeInPinecone = async (id, embedding) => {
   try {
     const index = pc.index("radio-db"); // Ensure this matches your index name
 
@@ -78,15 +66,11 @@ export const storeInPinecone = async (id, embedding) => {
 const streamUrl = "https://23153.live.streamtheworld.com/3AW.mp3";
 
 // Track the current chunk details
-let chunkIndex = 0;
+let chunkIndex = 1;
 let currentChunkPath = null;
 let fileStream = null;
 let isStreaming = false;
 const chunkDuration = 60000; // 1 minute
-
-const generateUUID = () => {
-  return crypto.randomUUID();
-};
 
 const startNewChunk = () => {
   const newChunkPath = path.join(__dirname, `live-stream-${chunkIndex}.mp3`);
@@ -101,14 +85,9 @@ const startNewChunk = () => {
         __dirname,
         `live-stream-${chunkIndex - 1}.mp3`
       );
-      transcribeQueue.add(
-        generateUUID(),
-        { filePath: completedChunkPath },
-        { attempts: 3 }
+      transcribeAudio(completedChunkPath).catch((err) =>
+        console.error(`Error transcribing ${completedChunkPath}:`, err.message)
       );
-      // transcribeAudio(completedChunkPath).catch((err) =>
-      //   console.error(`Error transcribing ${completedChunkPath}:`, err.message)
-      // );
 
       // Start a new chunk
       fileStream = fs.createWriteStream(newChunkPath);
@@ -126,7 +105,6 @@ const startNewChunk = () => {
 https
   .get(streamUrl, (response) => {
     console.log("Connected to the live stream.");
-    worker;
     isStreaming = true;
 
     // Initialize the first chunk
