@@ -188,28 +188,84 @@ const uploadAudio = async (filePath) => {
   }
 };
 
-let inProgressChunks = new Map(); // To track chunks that are being processed
+// Function to save transcription files
+const saveTranscriptionFiles = async (transcriptionResult, chunkIndex) => {
+  const todayFolder = getTodayFolderPath();
+  const transcriptionFileName = `transcription-${chunkIndex}.json`;
+  const transcriptionFilePath = path.join(todayFolder, transcriptionFileName);
 
-// Update transcribeAudio function to handle chunk status
+  console.log("Grouping transcription by speaker...");
+  const speakerTranscription = groupBySpeaker(transcriptionResult);
+  console.log("Transcription grouped by speaker.", speakerTranscription);
+
+  // Save JSON transcription
+  console.log(`Saving transcription to ${transcriptionFilePath}`);
+  writeFileSync(
+    transcriptionFilePath,
+    JSON.stringify(speakerTranscription, null, 2)
+  );
+  console.log("Transcription JSON saved.");
+
+  // Save transcription as TXT
+  const transcriptionTxtFilePath = transcriptionFilePath.replace(
+    ".json",
+    ".txt"
+  );
+
+  console.log("Converting transcription to TXT...");
+
+  const txtContent = transcriptionResult.utterances
+    .map((utterance) => {
+      return `Speaker ${utterance.speaker}: ${utterance.text}`;
+    })
+    .join("\n");
+
+  console.log(`Saving transcription as TXT to ${transcriptionTxtFilePath}`);
+  writeFileSync(transcriptionTxtFilePath, txtContent);
+
+  // Generate and store embeddings
+  console.log("Generating embeddings...");
+  const embeddingFilePath = transcriptionFilePath.replace(".json", ".jsonl");
+  const embedding = await embedText(txtContent, embeddingFilePath);
+  const uniqueId = `transcription-${chunkIndex}`;
+  await storeInPinecone(uniqueId, embedding.values);
+
+  console.log("Transcription TXT saved.");
+};
+
+// Poll transcription status until it is completed or failed
+const pollTranscriptionStatus = async (transcriptionId, chunkIndex) => {
+  while (true) {
+    const transcriptionResult = await getTranscriptionStatus(transcriptionId);
+    const status = transcriptionResult.status;
+
+    if (status === "completed") {
+      console.log(`Transcription completed for chunk ${chunkIndex}.`);
+      return transcriptionResult;
+    } else if (status === "failed") {
+      console.error(
+        `Transcription failed for chunk ${chunkIndex}: ${transcriptionResult.error}`
+      );
+      return null;
+    } else {
+      console.log(
+        `Transcription for chunk ${chunkIndex} is still processing...`
+      );
+      await new Promise((resolve) => setTimeout(resolve, 5000)); // Wait before checking again
+    }
+  }
+};
+
+// Transcribe audio function
 const transcribeAudio = async (filePath) => {
   if (!filePath || !fs.existsSync(filePath)) {
     console.error(`File ${filePath} is missing or not fully written yet.`);
     return;
   }
 
-  // Get the chunk index from the file name
-  const chunkIndex = path.basename(filePath, ".mp3").split("-")[2]; // Assuming the file name is `live-stream-1.mp3`
-
-  // If transcription for this chunk is already in progress, return early
-  if (inProgressChunks.has(chunkIndex)) {
-    console.log(`Transcription already in progress for chunk ${chunkIndex}`);
-    return;
-  }
+  const chunkIndex = path.basename(filePath, ".mp3").split("-")[2];
 
   try {
-    // Mark this chunk as in progress
-    inProgressChunks.set(chunkIndex, "processing");
-
     const uploadUrl = await uploadAudio(filePath);
     const response = await axios.post(
       "https://api.assemblyai.com/v2/transcript",
@@ -218,66 +274,17 @@ const transcribeAudio = async (filePath) => {
     );
     const transcriptionId = response.data.id;
 
-    let status = "processing";
-    let transcriptionResult;
+    // Poll the transcription status
+    const transcriptionResult = await pollTranscriptionStatus(
+      transcriptionId,
+      chunkIndex
+    );
 
-    while (status === "processing") {
-      transcriptionResult = await getTranscriptionStatus(transcriptionId);
-      status = transcriptionResult.status;
-
-      if (status === "completed") {
-        console.log(`Transcription completed for chunk ${chunkIndex}.`);
-      } else if (status === "failed") {
-        console.error(
-          `Transcription failed for chunk ${chunkIndex}: ${transcriptionResult.error}`
-        );
-        inProgressChunks.delete(chunkIndex); // Remove from in-progress if it failed
-        return;
-      } else {
-        console.log("Still processing, please wait...");
-        await new Promise((resolve) => setTimeout(resolve, 5000)); // Delay before retrying
-      }
+    if (transcriptionResult) {
+      saveTranscriptionFiles(transcriptionResult, chunkIndex);
     }
-
-    if (status === "completed") {
-      console.log("Grouping transcription by speaker...");
-      const speakerTranscription = groupBySpeaker(transcriptionResult);
-      console.log("Transcription grouped by speaker.", speakerTranscription);
-
-      const todayFolder = getTodayFolderPath();
-      const transcriptionFileName = `transcription-${chunkIndex}.json`;
-      const transcriptionFilePath = path.join(
-        todayFolder,
-        transcriptionFileName
-      );
-
-      console.log(`Saving transcription to ${transcriptionFilePath}`);
-      writeFileSync(
-        transcriptionFilePath,
-        JSON.stringify(speakerTranscription, null, 2)
-      );
-      console.log("Transcription saved.");
-
-      // Also save to TXT file
-      const transcriptionTxtFilePath = transcriptionFilePath.replace(
-        ".json",
-        ".txt"
-      );
-      const txtContent = transcriptionResult.utterances
-        .map((utterance) => {
-          return `Speaker ${utterance.speaker}: ${utterance.text}`;
-        })
-        .join("\n");
-
-      writeFileSync(transcriptionTxtFilePath, txtContent);
-      console.log(`Transcription TXT saved to ${transcriptionTxtFilePath}`);
-    }
-
-    // Remove from in-progress after transcription is done
-    inProgressChunks.delete(chunkIndex);
   } catch (error) {
     console.error("Error transcribing the audio file:", error.message);
-    inProgressChunks.delete(chunkIndex); // Remove from in-progress if an error occurs
   }
 };
 
