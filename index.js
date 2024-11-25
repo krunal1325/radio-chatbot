@@ -13,7 +13,7 @@ dotenv.config();
 
 // Initialize Pinecone client
 const pc = new Pinecone({ apiKey: process.env.PINECONE_API_KEY });
-const genAI = new GoogleGenerativeAI(process.env.API_KEY);
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
 const model2 = genAI.getGenerativeModel({ model: "text-embedding-004" });
 
 // Create __dirname equivalent in ES Modules
