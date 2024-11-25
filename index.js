@@ -7,6 +7,7 @@ import path, { resolve as _resolve } from "path";
 import https from "https";
 import { fileURLToPath } from "url";
 import fs from "fs";
+import { format } from "date-fns";
 
 dotenv.config();
 
@@ -23,6 +24,9 @@ const chunkDuration = 60 * 1000; // 1 minute
 let chunkIndex = 1; // Start at 1, but we will read this from a file later
 let fileStream = null;
 let isStreaming = false;
+let currentChunkStartTime = null;
+const radioName = "3AW";
+const pineconeIndexName = "radio-db";
 
 const getChunkIndex = () => {
   const indexFilePath = path.join(__dirname, "files", "chunkIndex.json");
@@ -67,14 +71,26 @@ const embedText = async (text, filePath) => {
   }
 };
 
-const storeInPinecone = async (id, embedding) => {
+const storeInPinecone = async (
+  id,
+  embedding,
+  txtContent,
+  start_time,
+  end_time
+) => {
   try {
-    const index = pc.index("radio-db");
+    const index = pc.index(pineconeIndexName);
     await index.upsert([
       {
         id: id,
         values: embedding,
-        metadata: { source: "live-radio" },
+        metadata: {
+          source: txtContent,
+          date: format(new Date(), "yyyy-MM-dd"),
+          start_time: format(new Date(start_time), "HH:mm:ss"),
+          end_time: format(new Date(end_time), "HH:mm:ss"),
+          radio_name: radioName,
+        },
       },
     ]);
     console.log(`Vector stored with ID: ${id}`);
@@ -97,64 +113,102 @@ const startNewChunk = () => {
         todayFolderPath,
         `live-stream-${chunkIndex - 1}.mp3`
       );
-      transcribeAudio(completedChunkPath).catch((err) =>
+      transcribeAudio(
+        completedChunkPath,
+        currentChunkStartTime,
+        new Date()
+      ).catch((err) =>
         console.error(`Error transcribing ${completedChunkPath}:`, err.message)
       );
       fileStream = fs.createWriteStream(newChunkPath);
       chunkIndex++;
       setChunkIndex(chunkIndex); // Save the updated chunk index
       console.log(`Started new chunk: ${path.basename(newChunkPath)}`);
+      currentChunkStartTime = new Date();
     });
   } else {
     fileStream = fs.createWriteStream(newChunkPath);
     console.log(`Started first chunk: ${path.basename(newChunkPath)}`);
+    currentChunkStartTime = new Date();
   }
 };
 
 const streamUrl = "https://23153.live.streamtheworld.com/3AW.mp3";
 
-https
-  .get(streamUrl, (response) => {
-    console.log("Connected to the live stream.");
-    isStreaming = true;
-    startNewChunk();
+let streamPingInterval = null; // Interval for checking stream availability
 
-    response.on("data", (chunk) => {
-      if (!isStreaming) return;
-      fileStream.write(chunk);
+const pingStream = async () => {
+  console.log("Pinging stream to check availability...");
+
+  try {
+    const response = await axios.head(streamUrl, {
+      timeout: 5000, // Timeout for the request
     });
 
-    response.on("end", () => {
-      console.log("Live stream ended.");
-      isStreaming = false;
-      if (fileStream) fileStream.end();
+    if (response.status === 200) {
+      console.log("Stream is available. Reconnecting...");
+      clearInterval(streamPingInterval); // Stop pinging
+      connectToStream(); // Reconnect to the stream
+    } else {
+      console.log(`Ping response status: ${response.status}`);
+    }
+  } catch (error) {
+    console.error("Stream is not available yet:", error.message);
+  }
+};
 
-      const lastChunkPath = path.join(
-        getTodayFolderPath(),
-        `live-stream-${chunkIndex - 1}.mp3`
-      );
-      transcribeAudio(lastChunkPath).catch((err) =>
-        console.error(
-          `Error transcribing last chunk ${lastChunkPath}:`,
-          err.message
-        )
-      );
+const connectToStream = () => {
+  https
+    .get(streamUrl, (response) => {
+      console.log("Connected to the live stream.");
+      isStreaming = true;
+      startNewChunk();
+
+      response.on("data", (chunk) => {
+        if (!isStreaming) return;
+        fileStream.write(chunk);
+      });
+
+      response.on("end", () => {
+        console.log("Live stream ended.");
+        isStreaming = false;
+        if (fileStream) fileStream.end();
+
+        const lastChunkPath = path.join(
+          getTodayFolderPath(),
+          `live-stream-${chunkIndex - 1}.mp3`
+        );
+        transcribeAudio(lastChunkPath, currentChunkStartTime, new Date()).catch(
+          (err) =>
+            console.error(
+              `Error transcribing last chunk ${lastChunkPath}:`,
+              err.message
+            )
+        );
+
+        console.log(
+          "Starting pinging interval to check stream availability..."
+        );
+        streamPingInterval = setInterval(pingStream, 10000); // Ping every 10 seconds
+      });
+
+      response.on("error", (error) => {
+        console.error("Error in the response:", error.message);
+        if (fileStream) fileStream.end();
+      });
+
+      setInterval(() => {
+        if (isStreaming) {
+          startNewChunk();
+        }
+      }, chunkDuration);
+    })
+    .on("error", (error) => {
+      console.error("Error connecting to the stream:", error.message);
     });
+};
 
-    response.on("error", (error) => {
-      console.error("Error in the response:", error.message);
-      if (fileStream) fileStream.end();
-    });
-
-    setInterval(() => {
-      if (isStreaming) {
-        startNewChunk();
-      }
-    }, chunkDuration);
-  })
-  .on("error", (error) => {
-    console.error("Error connecting to the stream:", error.message);
-  });
+connectToStream();
 
 process.on("SIGINT", () => {
   console.log("Process interrupted. Closing files.");
@@ -189,7 +243,12 @@ const uploadAudio = async (filePath) => {
 };
 
 // Function to save transcription files
-const saveTranscriptionFiles = async (transcriptionResult, chunkIndex) => {
+const saveTranscriptionFiles = async (
+  transcriptionResult,
+  chunkIndex,
+  start_time,
+  end_time
+) => {
   const todayFolder = getTodayFolderPath();
   const transcriptionFileName = `transcription-${chunkIndex}.json`;
   const transcriptionFilePath = path.join(todayFolder, transcriptionFileName);
@@ -214,7 +273,7 @@ const saveTranscriptionFiles = async (transcriptionResult, chunkIndex) => {
 
   console.log("Converting transcription to TXT...");
 
-  const txtContent = transcriptionResult.utterances
+  const txtContent = (transcriptionResult.utterances || [])
     .map((utterance) => {
       return `Speaker ${utterance.speaker}: ${utterance.text}`;
     })
@@ -228,7 +287,13 @@ const saveTranscriptionFiles = async (transcriptionResult, chunkIndex) => {
   const embeddingFilePath = transcriptionFilePath.replace(".json", ".jsonl");
   const embedding = await embedText(txtContent, embeddingFilePath);
   const uniqueId = `transcription-${chunkIndex}`;
-  await storeInPinecone(uniqueId, embedding.values);
+  await storeInPinecone(
+    uniqueId,
+    embedding.values,
+    txtContent,
+    start_time,
+    end_time
+  );
 
   console.log("Transcription TXT saved.");
 };
@@ -257,7 +322,7 @@ const pollTranscriptionStatus = async (transcriptionId, chunkIndex) => {
 };
 
 // Transcribe audio function
-const transcribeAudio = async (filePath) => {
+const transcribeAudio = async (filePath, start_time, end_time) => {
   if (!filePath || !fs.existsSync(filePath)) {
     console.error(`File ${filePath} is missing or not fully written yet.`);
     return;
@@ -281,7 +346,12 @@ const transcribeAudio = async (filePath) => {
     );
 
     if (transcriptionResult) {
-      saveTranscriptionFiles(transcriptionResult, chunkIndex);
+      saveTranscriptionFiles(
+        transcriptionResult,
+        chunkIndex,
+        start_time,
+        end_time
+      );
     }
   } catch (error) {
     console.error("Error transcribing the audio file:", error.message);
