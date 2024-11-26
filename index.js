@@ -87,8 +87,8 @@ const storeInPinecone = async (
         metadata: {
           source: txtContent,
           date: format(new Date(), "yyyy-MM-dd"),
-          start_time: format(new Date(start_time), "HH:mm:ss"),
-          end_time: format(new Date(end_time), "HH:mm:ss"),
+          start_time: new Date(start_time).getTime(),
+          end_time: new Date(end_time).getTime(),
           radio_name: radioName,
         },
       },

@@ -2,13 +2,14 @@ import express from "express";
 import dotenv from "dotenv";
 import { Pinecone } from "@pinecone-database/pinecone";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import axios from "axios";
+import { format } from "date-fns";
+import { CronJob } from "cron";
 
 dotenv.config();
 
 // Initialize Pinecone client
 const pc = new Pinecone({ apiKey: process.env.PINECONE_API_KEY });
-const genAI = new GoogleGenerativeAI(process.env.API_KEY);
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
 const model2 = genAI.getGenerativeModel({ model: "text-embedding-004" });
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
 
@@ -68,16 +69,26 @@ const embedQuery = async (query) => {
   }
 };
 
+function timeToSeconds(date) {
+  return date.getHours() * 3600 + date.getMinutes() * 60 + date.getSeconds();
+}
+
 // Function to search Pinecone for similar results
 const searchPinecone = async (embedding) => {
+  const currentTime = new Date();
+  const twentyMinutesAgo = new Date(currentTime - 20 * 60 * 1000);
   try {
+    const twentyMinutesAgoInSeconds = timeToSeconds(twentyMinutesAgo);
     const searchResult = await pineconeIndex.query({
       vector: embedding,
       topK: 10, // Get the top 10 results
       includeMetadata: true,
       filter: {
+        start_time: {
+          $gte: twentyMinutesAgoInSeconds,
+        },
         date: {
-          $eq: new Date().toLocaleDateString(),
+          $eq: format(new Date(), "yyyy-MM-dd"),
         },
       },
     });
@@ -90,12 +101,8 @@ const searchPinecone = async (embedding) => {
   }
 };
 
-// API endpoint to handle query
-app.post("/search", async (req, res) => {
-  // const { query } = req.body;
-  // if (!query) {
-  //   return res.status(400).json({ error: "Query text is required." });
-  // }
+// Search function to be called by cron job or API
+const search = async () => {
   const query = `
       Please analyze the data to monitor the following individuals in order of priority:
       
@@ -124,26 +131,41 @@ app.post("/search", async (req, res) => {
     console.log("Results retrieved, formatting response...");
 
     const combinedMetadata = results
-      .map((result) => result.metadata.source)
+      .map((result) => result.metadata?.source || "")
       .join(" ");
 
     console.log("Sending prompt to Gemini...");
 
     const geminiResponse = await getGeminiResponse(combinedMetadata, query);
 
-    console.log("Returning the response...");
-    return res.status(200).json({
-      response: geminiResponse.response.candidates[0].content.parts[0].text,
-    });
+    console.log("Gemini response generated.");
+    return geminiResponse.response.candidates[0].content.parts[0].text;
   } catch (error) {
-    console.log(error);
     console.error("Error processing the query:", error.message);
-    return res.status(500).json({ error: "Internal server error." });
+    throw error;
   }
-});
+};
+
+// Cron job logic
+const job = new CronJob(
+  "*/20 * * * *", // cronTime every 20 minutes
+  async function () {
+    try {
+      console.log("Executing scheduled search...");
+      const response = await search();
+      console.log("Search response:", response);
+    } catch (error) {
+      console.error("Cron job error:", error.message);
+    }
+  },
+  null, // onComplete
+  true, // start
+  "UTC" // timeZone
+);
 
 // Start the server
 const PORT = 3005;
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
+  job.start();
 });
