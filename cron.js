@@ -26,9 +26,10 @@ const getGeminiResponse = async (data, query) => {
   try {
     const prompt = `
       The user asked: "${query}".
-      Here's some related information from our database:
+      Here is the related information retrieved from our database:
       ${data}.
     `;
+
     const response = await model.generateContent({
       contents: [
         {
@@ -42,20 +43,34 @@ const getGeminiResponse = async (data, query) => {
         role: "system",
         parts: {
           text: `
-            - Respond only based on the provided data.
-            - Exclude individuals with no relevant information.
-            - Summarize relevant information concisely using bullet points.
-            - If no relevant data exists for all individuals, respond with "No relevant information found."
-            - Maintain accuracy and avoid fabricating information.
-            - Use clear and professional language.
+            Instructions for the response:
+            - Respond **only** based on the provided database information.
+            - For each individual mentioned, summarize their recent activities, statements, or actions, and include relevant policies or positions.
+            - Specify if they have been live or recently active on any media platforms.
+            - Use bullet points for clarity.
+            - Exclude individuals who do not have relevant data. Do not mention them in the response.
+            - If no relevant data exists for **any** of the individuals, return null.
+            - Ensure the response is concise, professional, and accurately reflects the provided data.
+            - Avoid assumptions or fabrication of information.
           `,
         },
       },
     });
 
-    return response;
+    // Check if the AI response indicates no relevant information
+    const responseText =
+      response.response.candidates[0]?.content?.parts[0]?.text;
+
+    console.log("Gemini response:", responseText);
+    if (
+      responseText?.trim() === "No relevant information found." ||
+      responseText?.trim() === "null"
+    ) {
+      return null; // Explicitly return null to indicate no data
+    }
+
+    return responseText;
   } catch (error) {
-    console.log(error);
     console.error("Error calling Gemini:", error.message);
     throw new Error("Failed to fetch response from Gemini.");
   }
@@ -104,25 +119,26 @@ const searchPinecone = async (embedding) => {
 // Search function to be called by cron job or API
 const search = async () => {
   const query = `
-      Please analyze the data to monitor the following individuals in order of priority:
-      
-      1. Prime Minister: Anthony Albanese (Labor Party; ALP)
-      2. Treasurer: Jim Chalmers (Labor Party; ALP)
-      3. Opposition Leader (or Leader of the Opposition, Liberal Party Leader, Shadow Leader): Peter Dutton (Liberal Party; coalition)
-      4. Deputy Leader of the Opposition: Sussan Ley (Liberal Party; coalition)
-      5. Leader: Adam Bandt (Australian Greens; The Greens)
-      6. Leader: David Littleproud (The Nationals; The Nats; coalition)
-      
-      For each individual:
-      - If relevant data is found, summarize recent activities, statements, or actions mentioned in the data, along with any relevant policies or positions.
-      - Also check if any individuals are going live or have been live recently on any media platforms then mention them in the response.
-      - If no data is available for an individual, **do not include them in the response**. Only state "No relevant information found" if no relevant data exists for any of the individuals.
-      
-      Ensure:
-      - Responses for individuals with data are concise and well-structured in bullet points.
-      - Do not fabricate or assume any details beyond the provided data.
-      - Use clear and professional language.
-    `;
+    Please analyze the data and provide recent information about the following individuals:
+    
+    1. Prime Minister: Anthony Albanese (Labor Party; ALP)
+    2. Treasurer: Jim Chalmers (Labor Party; ALP)
+    3. Opposition Leader (Liberal Party Leader, Shadow Leader): Peter Dutton (Liberal Party; coalition)
+    4. Deputy Leader of the Opposition: Sussan Ley (Liberal Party; coalition)
+    5. Leader: Adam Bandt (Australian Greens; The Greens)
+    6. Leader: David Littleproud (The Nationals; The Nats; coalition)
+    
+    For each individual:
+    - Summarize their recent activities, statements, or actions.
+    - Include details on any relevant policies or positions they have taken.
+    - Specify if they have been live or recently active on any media platforms.
+    
+    Additional Notes:
+    - Use bullet points for clarity.
+    - Only include individuals for whom relevant information exists. Exclude others.
+    - If no relevant data exists for all individuals, return null.
+    - Ensure the information is clear, concise, and strictly based on the provided data.
+  `;
 
   try {
     console.log("Generating embeddings for the query...");
@@ -140,8 +156,13 @@ const search = async () => {
 
     const geminiResponse = await getGeminiResponse(combinedMetadata, query);
 
+    if (!geminiResponse) {
+      console.log("No relevant information found, skipping SMS.");
+      return null; // Return null if no data is available to avoid sending SMS
+    }
+    sendSMS("+917405709622", `\n${geminiResponse}`);
     console.log("Gemini response generated.");
-    return geminiResponse.response.candidates[0].content.parts[0].text;
+    return geminiResponse;
   } catch (error) {
     console.error("Error processing the query:", error.message);
     throw error;
@@ -155,7 +176,6 @@ const searchCronjob = new CronJob(
     try {
       console.log("Executing scheduled search...");
       const response = await search();
-      sendSMS("+917405709622", `\n${response}`);
       console.log("Search response:", response);
     } catch (error) {
       console.error("Cron job error:", error.message);
