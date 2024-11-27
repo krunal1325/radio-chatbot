@@ -2,7 +2,13 @@ import { Pinecone } from "@pinecone-database/pinecone";
 import dotenv from "dotenv";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import axios from "axios";
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
+import {
+  readFileSync,
+  writeFileSync,
+  existsSync,
+  mkdirSync,
+  unlinkSync,
+} from "fs";
 import path, { resolve as _resolve } from "path";
 import https from "https";
 import { fileURLToPath } from "url";
@@ -25,8 +31,10 @@ let chunkIndex = 1; // Start at 1, but we will read this from a file later
 let fileStream = null;
 let isStreaming = false;
 let currentChunkStartTime = null;
-const radioName = "3AW";
+let streamPingInterval = null; // Interval for checking stream availability
 const pineconeIndexName = "radio-db";
+const radioName = "3AW";
+const streamUrl = "https://23153.live.streamtheworld.com/3AW.mp3";
 
 const getChunkIndex = () => {
   const indexFilePath = path.join(__dirname, "files", "chunkIndex.json");
@@ -47,9 +55,7 @@ chunkIndex = getChunkIndex(); // Read the current chunk index
 // Ensure today's folder exists
 const getTodayFolderPath = () => {
   const today = new Date();
-  const folderName = `${today.getFullYear()}-${
-    today.getMonth() + 1
-  }-${today.getDate()}`;
+  const folderName = format(today, "yyyy-MM-dd");
   const folderPath = path.join(__dirname, "files", folderName);
   if (!existsSync(folderPath)) {
     mkdirSync(folderPath, { recursive: true });
@@ -60,10 +66,10 @@ const getTodayFolderPath = () => {
 const embedText = async (text, filePath) => {
   try {
     const result = await model2.embedContent(text);
-    const vectorFilePath = filePath.replace(".mp3", ".json");
-    const resultJson = JSON.stringify(result, null, 2);
-    writeFileSync(vectorFilePath, resultJson);
-    console.info(`Embedding saved to ${vectorFilePath}`);
+    // Uncomment the following lines to save the embeddings
+    // const resultJson = JSON.stringify(result, null, 2);
+    // writeFileSync(filePath, resultJson);
+    // console.info(`Embedding saved to ${filePath}`);
     return result.embedding;
   } catch (error) {
     console.error("Error generating embeddings:", error.message);
@@ -132,10 +138,6 @@ const startNewChunk = () => {
     currentChunkStartTime = new Date();
   }
 };
-
-const streamUrl = "https://23153.live.streamtheworld.com/3AW.mp3";
-
-let streamPingInterval = null; // Interval for checking stream availability
 
 const pingStream = async () => {
   console.log("Pinging stream to check availability...");
@@ -235,6 +237,8 @@ const uploadAudio = async (filePath) => {
         },
       }
     );
+
+    unlinkSync(filePath);
     return response.data.upload_url;
   } catch (error) {
     console.error("Error uploading audio file:", error.message);
@@ -253,25 +257,25 @@ const saveTranscriptionFiles = async (
   const transcriptionFileName = `transcription-${chunkIndex}.json`;
   const transcriptionFilePath = path.join(todayFolder, transcriptionFileName);
 
-  console.log("Grouping transcription by speaker...");
-  const speakerTranscription = groupBySpeaker(transcriptionResult);
-  console.log("Transcription grouped by speaker.", speakerTranscription);
+  // console.log("Grouping transcription by speaker...");
+  // const speakerTranscription = groupBySpeaker(transcriptionResult);
+  // console.log("Transcription grouped by speaker.", speakerTranscription);
 
   // Save JSON transcription
-  console.log(`Saving transcription to ${transcriptionFilePath}`);
-  writeFileSync(
-    transcriptionFilePath,
-    JSON.stringify(speakerTranscription, null, 2)
-  );
-  console.log("Transcription JSON saved.");
+  // console.log(`Saving transcription to ${transcriptionFilePath}`);
+  // writeFileSync(
+  //   transcriptionFilePath,
+  //   JSON.stringify(speakerTranscription, null, 2)
+  // );
+  // console.log("Transcription JSON saved.");
 
   // Save transcription as TXT
-  const transcriptionTxtFilePath = transcriptionFilePath.replace(
-    ".json",
-    ".txt"
-  );
+  // const transcriptionTxtFilePath = transcriptionFilePath.replace(
+  //   ".json",
+  //   ".txt"
+  // );
 
-  console.log("Converting transcription to TXT...");
+  // console.log("Converting transcription to TXT...");
 
   const txtContent = (transcriptionResult.utterances || [])
     .map((utterance) => {
@@ -279,8 +283,8 @@ const saveTranscriptionFiles = async (
     })
     .join("\n");
 
-  console.log(`Saving transcription as TXT to ${transcriptionTxtFilePath}`);
-  writeFileSync(transcriptionTxtFilePath, txtContent);
+  // console.log(`Saving transcription as TXT to ${transcriptionTxtFilePath}`);
+  // writeFileSync(transcriptionTxtFilePath, txtContent);
 
   // Generate and store embeddings
   console.log("Generating embeddings...");
