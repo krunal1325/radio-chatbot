@@ -160,7 +160,7 @@ const search = async () => {
       console.log("No relevant information found, skipping SMS.");
       return null; // Return null if no data is available to avoid sending SMS
     }
-    sendSMS("+917405709622", `\n${geminiResponse}`);
+
     console.log("Gemini response generated.");
     return geminiResponse;
   } catch (error) {
@@ -176,6 +176,9 @@ const searchCronjob = new CronJob(
     try {
       console.log("Executing scheduled search...");
       const response = await search();
+      if (response) {
+        sendSMS("+917405709622", `\n${response}`);
+      }
       console.log("Search response:", response);
     } catch (error) {
       console.error("Cron job error:", error.message);
