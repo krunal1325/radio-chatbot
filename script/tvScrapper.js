@@ -3,17 +3,25 @@ import { spawn } from "child_process";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
+import {
+  pollTranscriptionStatus,
+  submitForTranscription,
+  uploadAudio,
+} from "../helper/assemblyAI.helper.js";
+import { storeInPinecone } from "../helper/pinecone.helper.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename, "utf-8");
 
 const AUDIO_PREFIX = "abc-news"; // Constant variable for the prefix
-const FILE_PATH = ["tvFiles", AUDIO_PREFIX];
+const FILE_PATH = ["..", "tvFiles", AUDIO_PREFIX];
+
+let ffmpegProcess = null;
 
 // Function to launch YouTube video with Puppeteer
 const playYouTubeVideo = async (videoUrl) => {
   const browser = await puppeteer.launch({
-    headless: true,
+    headless: false,
     args: ["--autoplay-policy=no-user-gesture-required", "--disable-infobars"],
   });
 
@@ -38,7 +46,7 @@ const playYouTubeVideo = async (videoUrl) => {
   }
 
   // Start FFmpeg to capture audio in chunks
-  startFFmpegRecording();
+  ffmpegProcess = startFFmpegRecording();
 };
 
 // Function to start FFmpeg to capture audio and split into 1-minute chunks
@@ -82,8 +90,15 @@ const startFFmpegRecording = () => {
     const match = log.match(/Opening '(.*)' for writing/);
     if (match) {
       const newFile = match[1];
+      const currentTime = new Date().getTime();
+      const start_time = currentTime - 60;
+      const end_time = currentTime;
       // Call your custom function or logic here
-      onChunkCreated(newFile);
+      onChunkCreated({
+        filePath: newFile,
+        start_time,
+        end_time,
+      });
     }
   });
 
@@ -94,47 +109,73 @@ const startFFmpegRecording = () => {
   return ffmpegProcess;
 };
 
-// Assembly AI Transcription Functions
-const uploadAudio = async (filePath) => {
+const saveTranscriptionFiles = async (
+  transcriptionResult,
+  start_time,
+  end_time
+) => {
+  const transcriptionId = transcriptionResult.id;
+  await storeInPinecone({
+    transcriptionId,
+    start_time,
+    end_time,
+    channelName: AUDIO_PREFIX,
+  });
+
+  console.log("Transcription TXT saved.");
+};
+
+const onChunkCreated = async ({ filePath, start_time, end_time }) => {
   try {
-    const file = readFileSync(filePath);
-    const response = await axios.post(
-      "https://api.assemblyai.com/v2/upload",
-      file,
-      {
-        headers: {
-          authorization: process.env.ASSEMBLY_AI_KEY,
-          "content-type": "application/octet-stream",
-        },
-      }
+    console.log(`Chunk started: ${filePath}`);
+    const fileName = path.basename(filePath).replace(".mp3", "");
+    const array = fileName.split("-");
+
+    const chunkIndex = array[array.length - 1];
+    const oldFilePath = path.join(
+      __dirname,
+      ...FILE_PATH,
+      `${AUDIO_PREFIX}-${chunkIndex - 1}.mp3`
     );
 
-    unlinkSync(filePath);
-    return response.data.upload_url;
+    if (fs.existsSync(oldFilePath)) {
+      console.log(`processing chunk: ${path.basename(oldFilePath)}`);
+      const uploadURL = await uploadAudio(oldFilePath);
+      console.log("Audio uploaded.");
+      const transcription = await submitForTranscription(uploadURL);
+      const transcriptionId = transcription.id;
+      console.log("Transcription started.");
+      const transcriptionResult = await pollTranscriptionStatus(
+        transcriptionId
+      );
+      console.log("Transcription completed.");
+      if (transcriptionResult) {
+        await saveTranscriptionFiles(
+          transcriptionResult,
+          chunkIndex,
+          start_time,
+          end_time
+        );
+      }
+    }
   } catch (error) {
-    console.error("Error uploading audio file:", error.message);
-    throw error;
+    console.error("Error processing chunk:", error.message);
+    stopFFmpegRecording();
   }
 };
 
-const onChunkCreated = (filePath) => {
-  console.log(`Chunk started: ${filePath}`);
-  const fileName = path.basename(filePath).replace(".mp3", "");
-  const array = fileName.split("-");
-
-  const chunkIndex = array[array.length - 1];
-  const oldFilePath = path.join(
-    __dirname,
-    ...FILE_PATH,
-    `${AUDIO_PREFIX}-${chunkIndex - 1}.mp3`
-  );
-
-  if (fs.existsSync(oldFilePath)) {
-    console.log(`Chunk completed: ${oldFilePath}`);
+const stopFFmpegRecording = () => {
+  if (ffmpegProcess) {
+    ffmpegProcess.kill("SIGINT"); // Send SIGINT to stop FFmpeg
   }
-
-  // Perform any actions like moving files, processing them, etc.
 };
+
+process.on("SIGINT", () => {
+  console.log("Process interrupted. Closing files.");
+  stopFFmpegRecording();
+});
 
 // Run the video and audio capture
-playYouTubeVideo("https://youtu.be/vOTiJkg1voo");
+export const startTVStream = ({
+  youtubeUrl = "https://youtu.be/vOTiJkg1voo",
+}) => playYouTubeVideo(youtubeUrl);

@@ -1,5 +1,6 @@
 import { AssemblyAI } from "assemblyai";
 import dotenv from "dotenv";
+import { readFileSync, unlinkSync } from "fs";
 
 dotenv.config();
 
@@ -10,7 +11,9 @@ const assemblyai = new AssemblyAI({
 
 const uploadAudio = (filePath) => {
   try {
-    const fileUrl = assemblyai.files.upload(filePath);
+    const fileContent = readFileSync(filePath);
+    const fileUrl = assemblyai.files.upload(fileContent, "audio/mpeg");
+    unlinkSync(filePath);
     return fileUrl;
   } catch (error) {
     console.error("Error uploading audio file:", error.message);
@@ -19,7 +22,10 @@ const uploadAudio = (filePath) => {
 
 const submitForTranscription = async (fileUrl) => {
   try {
-    const transcript = await assemblyai.transcripts.submit(fileUrl);
+    const transcript = await assemblyai.transcripts.submit({
+      audio_url: fileUrl,
+      speaker_labels: true,
+    });
     return transcript;
   } catch (error) {
     console.error("Error transcribing audio:", error.message);
@@ -48,10 +54,26 @@ const getTranscriptText = async (transcriptId) => {
   }
 };
 
+const pollTranscriptionStatus = async (transcriptionId) => {
+  while (true) {
+    const transcriptionResult = await getTranscriptionStatus(transcriptionId);
+    const status = transcriptionResult.status;
+
+    if (status === "completed") {
+      return transcriptionResult;
+    } else if (status === "failed") {
+      return null;
+    } else {
+      await new Promise((resolve) => setTimeout(resolve, 5000)); // Wait before checking again
+    }
+  }
+};
+
 export {
   assemblyai,
   uploadAudio,
   submitForTranscription,
   getTranscriptionStatus,
   getTranscriptText,
+  pollTranscriptionStatus,
 };
