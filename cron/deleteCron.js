@@ -1,5 +1,6 @@
 import { CronJob } from "cron";
-// import { pineconeIndex } from "../helper/pinecone.helper.js";
+import { subDays } from "date-fns";
+import { pineconeIndex } from "../helper/pinecone.helper.js";
 
 const deleteOldPineconeIndex = async (paginationToken) => {
   try {
@@ -41,7 +42,7 @@ const deleteOldPineconeIndex = async (paginationToken) => {
 
 // Delete old Pinecone index CRON JOB has to run every 24 hours
 export const deleteOldPineconeIndexCronjob = new CronJob(
-  "0 0 0 * * *", // cronTime every day at midnight
+  "0 * * * *", // cronTime every day at midnight
   async function () {
     try {
       console.log("Deleting old Pinecone index...");

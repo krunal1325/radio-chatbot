@@ -127,7 +127,7 @@ const saveTranscriptionFiles = async (
 
 const onChunkCreated = async ({ filePath, start_time, end_time }) => {
   try {
-    console.log(`Chunk started: ${filePath}`);
+    console.log(`Chunk started: ${path.basename(filePath)}`);
     const fileName = path.basename(filePath).replace(".mp3", "");
     const array = fileName.split("-");
 
@@ -150,12 +150,7 @@ const onChunkCreated = async ({ filePath, start_time, end_time }) => {
       );
       console.log("Transcription completed.");
       if (transcriptionResult) {
-        await saveTranscriptionFiles(
-          transcriptionResult,
-          chunkIndex,
-          start_time,
-          end_time
-        );
+        await saveTranscriptionFiles(transcriptionResult, start_time, end_time);
       }
     }
   } catch (error) {
@@ -176,6 +171,7 @@ process.on("SIGINT", () => {
 });
 
 // Run the video and audio capture
-export const startTVStream = ({
-  youtubeUrl = "https://youtu.be/vOTiJkg1voo",
-}) => playYouTubeVideo(youtubeUrl);
+export const startTVStream = (youtubeUrl = "https://youtu.be/vOTiJkg1voo") =>
+  playYouTubeVideo(youtubeUrl);
+
+startTVStream();

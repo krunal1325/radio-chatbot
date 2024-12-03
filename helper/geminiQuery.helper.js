@@ -3,16 +3,49 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY2);
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
 
-export const geminiQuery = async ({ data, query }) => {
+export const geminiQuery = async ({ data }) => {
   try {
     const prompt = `
-        The user asked: "${query}".
-        Here is the related information retrieved from our database:
-        ${data}.
-      `;
+      Focused Political Analysis: Australian Political Leaders
+
+      Specific Individuals to Analyze:
+      1. Prime Minister Anthony Albanese (Labor Party; ALP)
+      2. Treasurer Jim Chalmers (Labor Party; ALP)
+      3. Opposition Leader Peter Dutton (Liberal Party; coalition)
+      4. Deputy Opposition Leader Sussan Ley (Liberal Party; coalition)
+      5. Greens Leader Adam Bandt (Australian Greens)
+      6. Nationals Leader David Littleproud (The Nationals; coalition)
+
+      Strict Analysis Requirements:
+      - ONLY report information DIRECTLY related to the listed political leaders
+      - Identify specific activities, statements, or policy discussions by these individuals
+      - Include media appearances, press conferences, or direct quotes
+      - CRITICAL: If NO information exists about these specific leaders, return NULL
+      - Do NOT include or summarize unrelated information
+
+      Provided Data:
+      ${data}
+    `;
+
+    const systemInstruction = `
+      Response Protocol:
+
+      Absolute Criteria:
+      - MANDATORY: Only return information about the specified Australian political leaders
+      - REJECT any data not directly related to Albanese, Chalmers, Dutton, Ley, Bandt, or Littleproud
+      - IF NO relevant information exists about these leaders, RETURN "null"
+      - IGNORE all peripheral or unrelated information
+      - Provide ZERO summary of irrelevant data
+
+      Output Requirements:
+      - Strict focus on political leaders mentioned in the prompt
+      - Include ONLY verifiable, direct information about these individuals
+      - No speculation or tangential reporting
+      - Immediate NULL return if no specific leader information exists
+    `;
 
     const response = await model.generateContent({
       contents: [
@@ -26,33 +59,25 @@ export const geminiQuery = async ({ data, query }) => {
       systemInstruction: {
         role: "system",
         parts: {
-          text: `
-              Instructions for the response:
-              - Respond **only** based on the provided database information.
-              - For each individual mentioned, summarize their recent activities, statements, or actions, and include relevant policies or positions.
-              - Specify if they have been live or recently active on any media platforms.
-              - Use bullet points for clarity.
-              - Exclude individuals who do not have relevant data. Do not mention them in the response.
-              - If no relevant data exists for **any** of the individuals, return null.
-              - Ensure the response is concise, professional, and accurately reflects the provided data.
-              - Avoid assumptions or fabrication of information.
-            `,
+          text: systemInstruction,
         },
       },
     });
 
-    // Check if the AI response indicates no relevant information
+    // Extract and validate the response content
     const responseText =
-      response.response.candidates[0]?.content?.parts[0]?.text;
+      response?.response?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
 
-    console.log("Gemini response:", responseText);
     if (
-      responseText?.trim() === "No relevant information found." ||
-      responseText?.trim() === "null"
+      !responseText ||
+      responseText === "null" ||
+      responseText.includes("no relevant information")
     ) {
-      return null; // Explicitly return null to indicate no data
+      console.log("No relevant data found for specified political leaders.");
+      return null;
     }
 
+    console.log("Gemini response:", responseText);
     return responseText;
   } catch (error) {
     console.error("Error calling Gemini:", error.message);

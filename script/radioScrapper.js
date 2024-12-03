@@ -29,9 +29,11 @@ let fileStream = null;
 let isStreaming = false;
 let streamPingInterval = null;
 let chunkIndex = 0;
+let radioName = "";
+let streamUrl = "";
 
 /** Transcription **/
-const transcribeAudio = async ({ filePath, startTime, endTime, radioName }) => {
+const transcribeAudio = async ({ filePath, startTime, endTime }) => {
   if (!fs.existsSync(filePath)) {
     console.error(`File not found: ${filePath}`);
     return;
@@ -48,7 +50,7 @@ const transcribeAudio = async ({ filePath, startTime, endTime, radioName }) => {
         end_time: endTime,
         start_time: startTime,
       });
-      console.log(`Transcription completed for ${filePath}`);
+      console.log(`Transcription completed for ${path.basename(filePath)}`);
     }
   } catch (error) {
     console.error(`Error transcribing ${filePath}:`, error.message);
@@ -56,7 +58,7 @@ const transcribeAudio = async ({ filePath, startTime, endTime, radioName }) => {
 };
 
 /** Chunk Management **/
-const startNewChunk = ({ radioName }) => {
+const startNewChunk = () => {
   const chunkFileName = `${radioName}-${chunkIndex}.mp3`;
   const chunkFilePath = path.join(FILES_DIR, chunkFileName);
 
@@ -76,7 +78,7 @@ const startNewChunk = ({ radioName }) => {
   }
 };
 
-const initNewChunk = ({ radioName }) => {
+const initNewChunk = () => {
   const newChunk = chunkIndex + 1;
   chunkIndex = newChunk;
   const chunkFileName = `${radioName}-${newChunk}.mp3`;
@@ -87,7 +89,9 @@ const initNewChunk = ({ radioName }) => {
 };
 
 /** Stream Handling **/
-const connectToStream = ({ radioName, streamUrl }) => {
+const connectToStream = ({ channelName, channelUrl }) => {
+  radioName = channelName;
+  streamUrl = channelUrl;
   https
     .get(streamUrl, (response) => {
       console.log("Connected to live stream.");
@@ -109,7 +113,7 @@ const connectToStream = ({ radioName, streamUrl }) => {
     .on("error", handleStreamError);
 };
 
-const handleStreamEnd = ({ radioName }) => {
+const handleStreamEnd = () => {
   console.log("Live stream ended.");
   isStreaming = false;
   if (fileStream) fileStream.end();
@@ -126,7 +130,7 @@ const handleStreamError = (error) => {
   if (fileStream) fileStream.end();
 };
 
-const pingStream = async ({ streamUrl }) => {
+const pingStream = async () => {
   try {
     const response = await axios.head(streamUrl, { timeout: 5000 });
     if (response.status === 200) {
@@ -140,10 +144,10 @@ const pingStream = async ({ streamUrl }) => {
 };
 
 /** Initialization **/
-export const startRadioStream = ({
+export const startRadioStream = (
   radioName = "3AW",
-  streamUrl = "https://23153.live.streamtheworld.com/3AW.mp3",
-}) => connectToStream({ radioName, streamUrl });
+  streamUrl = "https://23153.live.streamtheworld.com/3AW.mp3"
+) => connectToStream({ channelName: radioName, channelUrl: streamUrl });
 
 process.on("SIGINT", () => {
   console.log("Process interrupted. Closing files.");
@@ -155,3 +159,5 @@ process.on("SIGINT", () => {
     });
   }
 });
+
+startRadioStream();

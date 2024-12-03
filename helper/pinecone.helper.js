@@ -20,6 +20,12 @@ export const storeInPinecone = async ({
   channelName,
 }) => {
   try {
+    console.log(
+      "Storing vector in Pinecone...",
+      channelName,
+      start_time,
+      end_time
+    );
     const txtContent = await getTranscriptText(transcriptionId);
     const embedding = await embedText(txtContent);
     const id = generateRandomString();
