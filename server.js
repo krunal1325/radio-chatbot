@@ -2,6 +2,7 @@ import express from "express";
 import dotenv from "dotenv";
 import { deleteOldPineconeIndexCronjob } from "./cron/deleteCron.js";
 import { search, searchCronjob } from "./cron/searchCron.js";
+import { startTVStream } from "./script/tvScrapper.js";
 dotenv.config();
 
 const PORT = process.env.PORT || 3000;
@@ -17,8 +18,13 @@ app.post("/search", async (req, res) => {
   res.json(response);
 });
 
+app.get("*", (req, res) => {
+  return res.status(404).send("Not Found");
+});
+
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
   searchCronjob.start();
   deleteOldPineconeIndexCronjob.start();
+  startTVStream();
 });

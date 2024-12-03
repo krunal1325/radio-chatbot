@@ -21,7 +21,7 @@ let ffmpegProcess = null;
 // Function to launch YouTube video with Puppeteer
 const playYouTubeVideo = async (videoUrl) => {
   const browser = await puppeteer.launch({
-    headless: false,
+    headless: true,
     args: ["--autoplay-policy=no-user-gesture-required", "--disable-infobars"],
   });
 
@@ -174,4 +174,4 @@ process.on("SIGINT", () => {
 export const startTVStream = (youtubeUrl = "https://youtu.be/vOTiJkg1voo") =>
   playYouTubeVideo(youtubeUrl);
 
-startTVStream();
+// startTVStream();
