@@ -1,4 +1,6 @@
 import puppeteer from "puppeteer";
+import StealthPlugin from "puppeteer-extra-plugin-stealth";
+import puppeteerExtra from "puppeteer-extra";
 import { spawn } from "child_process";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -9,47 +11,94 @@ import {
   uploadAudio,
 } from "../helper/assemblyAI.helper.js";
 import { storeInPinecone } from "../helper/pinecone.helper.js";
+import { convertToMillisecond } from "../helper/common.helper.js";
+import { ChannelNames } from "../helper/constant.helper.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename, "utf-8");
 
-const AUDIO_PREFIX = "abc-news"; // Constant variable for the prefix
+const AUDIO_PREFIX = ChannelNames.FOX_SPORTS_NEWS; // Constant variable for the prefix
 const FILE_PATH = ["..", "tvFiles", AUDIO_PREFIX];
 
 let ffmpegProcess = null;
+let isError = false;
+// Add stealth plugin to bypass detection
+puppeteerExtra.use(StealthPlugin());
 
-// Function to launch YouTube video with Puppeteer
-const playYouTubeVideo = async (videoUrl) => {
+const timeout = convertToMillisecond(60);
+
+const playVideoStream = async (url, email, password) => {
   const browser = await puppeteer.launch({
-    headless: false,
-    args: ["--autoplay-policy=no-user-gesture-required", "--disable-infobars"],
+    headless: true,
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-infobars",
+      "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+    ],
   });
 
   const page = await browser.newPage();
 
   try {
-    await page.goto(videoUrl, { waitUntil: "domcontentloaded" });
-    console.log("YouTube page loaded.");
-
-    await page.waitForSelector(".html5-video-player");
-    console.log("Video is playing.");
-
-    await page.evaluate(() => {
-      const video = document.querySelector("video");
-      if (video) {
-        video.muted = false;
-        video.play();
-      }
+    // Navigate to the URL
+    isError = false;
+    await page.goto(url, {
+      waitUntil: "networkidle2",
+      timeout,
     });
-  } catch (error) {
-    console.error("Error playing YouTube video:", error.message);
-  }
 
+    // Wait for login button and click it
+    await page.waitForSelector(".header_log-in", { visible: true, timeout });
+    console.log("Main page loaded.");
+    await page.click(".header_log-in");
+    console.log("Login button clicked.");
+    // Wait for email input field
+    await page.waitForSelector('input[name="email"]', {
+      visible: true,
+      timeout,
+    });
+
+    // Type email
+    await page.type('input[name="email"]', email, { delay: 200 });
+
+    // Wait for password input field
+    await page.waitForSelector('input[name="password"]', {
+      visible: true,
+      timeout,
+    });
+
+    // Type password
+    await page.type('input[name="password"]', password, { delay: 200 });
+
+    // Submit the login form
+    await page.click('button[type="submit"]');
+    await page.waitForNavigation({ waitUntil: "load", timeout });
+    console.log("Login successful");
+    await page.waitForSelector(".header_log-in", { visible: true, timeout });
+    await page.click(".header_log-in");
+
+    await page.goto(
+      "https://www.skynews.com.au/stream/sky-news-australia/video/88e5627c9f18cb4a2b45c2b3688a7e31",
+      { waitUntil: "load", timeout }
+    );
+
+    await page.waitForSelector(".rp-muted-autoplay", {
+      visible: true,
+      timeout,
+    });
+    await page.click(".rp-muted-autoplay");
+  } catch (error) {
+    console.error("Error during login process:", error.message);
+    isError = true;
+  } finally {
+    // Optional: Keep browser open or close based on your needs
+    // await browser.close();
+  }
   // Start FFmpeg to capture audio in chunks
-  ffmpegProcess = startFFmpegRecording();
+  ffmpegProcess = isError ? null : startFFmpegRecording();
 };
 
-// Function to start FFmpeg to capture audio and split into 1-minute chunks
 const startFFmpegRecording = () => {
   const ffmpegPath = "C:/ProgramData/chocolatey/bin/ffmpeg.exe";
 
@@ -171,7 +220,8 @@ process.on("SIGINT", () => {
 });
 
 // Run the video and audio capture
-export const startTVStream = (youtubeUrl = "https://youtu.be/vOTiJkg1voo") =>
-  playYouTubeVideo(youtubeUrl);
-
-startTVStream();
+export const startTVStream = (
+  url = "https://www.skynews.com.au",
+  email = process.env.SKY_NEWS_EMAIL,
+  password = process.env.SKY_NEWS_PASSWORD
+) => playVideoStream(url, email, password);

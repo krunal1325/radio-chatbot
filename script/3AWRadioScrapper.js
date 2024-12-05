@@ -11,6 +11,7 @@ import {
   pollTranscriptionStatus,
 } from "../helper/assemblyAI.helper.js";
 import { storeInPinecone } from "../helper/pinecone.helper.js";
+import { ChannelNames } from "../helper/constant.helper.js";
 
 dotenv.config();
 
@@ -145,7 +146,7 @@ const pingStream = async () => {
 
 /** Initialization **/
 export const startRadioStream = (
-  radioName = "3AW",
+  radioName = ChannelNames["3AW"],
   streamUrl = "https://23153.live.streamtheworld.com/3AW.mp3"
 ) => connectToStream({ channelName: radioName, channelUrl: streamUrl });
 
@@ -159,5 +160,3 @@ process.on("SIGINT", () => {
     });
   }
 });
-
-startRadioStream();

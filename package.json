@@ -1,8 +1,8 @@
 {
-  "name": "learn",
+  "name": "fomo-news-scrapper",
   "version": "1.0.0",
   "description": "",
-  "main": "app.js",
+  "main": "server.js",
   "type": "module",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
@@ -22,6 +22,8 @@
     "mime-types": "^2.1.35",
     "nodemon": "^3.1.7",
     "puppeteer": "^23.9.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
     "request": "^2.88.2",
     "twilio": "^5.3.6"
   }

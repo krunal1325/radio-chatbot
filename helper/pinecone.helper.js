@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import { generateRandomString } from "./commonFunction.js";
 import { getTranscriptText } from "./assemblyAI.helper.js";
 import { embedText } from "./embedding.helper.js";
+import fs from "fs";
 
 dotenv.config();
 
@@ -29,6 +30,7 @@ export const storeInPinecone = async ({
     const txtContent = await getTranscriptText(transcriptionId);
     const embedding = await embedText(txtContent);
     const id = generateRandomString();
+    // fs.writeFileSync(`${id}-${channelName}-transcript.txt`, txtContent);
     await pineconeIndex.upsert([
       {
         id,

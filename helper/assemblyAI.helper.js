@@ -44,6 +44,7 @@ const getTranscriptionStatus = async (transcriptId) => {
 const getTranscriptText = async (transcriptId) => {
   try {
     const transcript = await assemblyai.transcripts.get(transcriptId);
+    console.log(transcript.utterances, "transcript details");
     return (transcript.utterances || [])
       .map((utterance) => {
         return `Speaker ${utterance.speaker}: ${utterance.text}`;
