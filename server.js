@@ -4,7 +4,7 @@ import { deleteOldPineconeIndexCronjob } from "./cron/deleteCron.js";
 import { search, searchCronjob } from "./cron/searchCron.js";
 import { startRadioStream as twoGBRadioScrapper } from "./script/2GBRadioScrapper.js";
 import { startRadioStream as threeAWRadioScrapper } from "./script/3AWRadioScrapper.js";
-import { startTVStream as abcNewsScrapper } from "./script/abcNewsScrapper.js";
+import { downloadYoutubeLiveChunks as abcNewsScrapper } from "./script/abcNewsScrapper.js";
 import { startTVStream as foxSportsNewsScrapper } from "./script/foxSportsNewsScrapper.js";
 import { startTVStream as skyNewsScrapper } from "./script/skyNewsScrapper.js";
 
@@ -30,6 +30,6 @@ app.listen(PORT, () => {
   twoGBRadioScrapper();
   threeAWRadioScrapper();
   abcNewsScrapper();
-  foxSportsNewsScrapper();
-  skyNewsScrapper();
+  // foxSportsNewsScrapper();
+  // skyNewsScrapper();
 });

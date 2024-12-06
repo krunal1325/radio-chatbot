@@ -9,6 +9,7 @@ import { ChannelNames } from "../helper/constant.helper.js";
 dotenv.config();
 
 const TIME_FOR_SEARCH_QUERY = Number(process.env.TIME_FOR_SEARCH_QUERY) || 10;
+const phoneNumbers = ["+917405709622", "+61401831400"];
 const keywords = [
   // Political Designations & Names
   "Prime Minister Anthony Albanese",
@@ -60,6 +61,9 @@ const keywords = [
   "AFL coach media appearance",
 ];
 
+// Sleep
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 export const search = async (channel_name, queryBody = "") => {
   try {
     const query = queryBody || keywords.join(",");
@@ -99,42 +103,20 @@ export const searchCronjob = new CronJob(
   `*/${TIME_FOR_SEARCH_QUERY} * * * *`, // cronTime every 20 minutes
   async function () {
     try {
-      const phoneNumbers = ["+917405709622", "+61401831400"];
       console.log("Executing scheduled search...");
-      const AW3Response = await search(ChannelNames["3AW"]);
-      if (AW3Response) {
-        sendWhatsAppMessage(
-          phoneNumbers,
-          `\n${AW3Response}\nFROM: ${ChannelNames["3AW"]}`
-        );
-      }
-      const twoGBResponse = await search(ChannelNames["2GB"]);
-      if (twoGBResponse) {
-        sendWhatsAppMessage(
-          phoneNumbers,
-          `\n${twoGBResponse}\nFROM: ${ChannelNames["2GB"]}`
-        );
-      }
-      const abcNewsResponse = await search(ChannelNames.ABC_NEWS);
-      if (abcNewsResponse) {
-        sendWhatsAppMessage(
-          phoneNumbers,
-          `\n${abcNewsResponse}\nFROM: ${ChannelNames.ABC_NEWS}`
-        );
-      }
-      const skyNewsResponse = await search(ChannelNames.SKY_NEWS);
-      if (skyNewsResponse) {
-        sendWhatsAppMessage(
-          phoneNumbers,
-          `\n${skyNewsResponse}\nFROM: ${ChannelNames.SKY_NEWS}`
-        );
-      }
-      const foxSportsNewsResponse = await search(ChannelNames.FOX_SPORTS_NEWS);
-      if (foxSportsNewsResponse) {
-        sendWhatsAppMessage(
-          phoneNumbers,
-          `\n${foxSportsNewsResponse}\nFROM: ${ChannelNames.FOX_SPORTS_NEWS}`
-        );
+      for (const [channelKey, channelValue] of Object.entries(ChannelNames)) {
+        console.log(`Searching for ${channelKey}...`);
+        const response = await search(channelValue);
+
+        if (response) {
+          sendWhatsAppMessage(
+            phoneNumbers,
+            `\n${response}\nFROM: ${channelKey}`
+          );
+        }
+
+        // Wait for 30 seconds before searching the next channel
+        await sleep(30000); // Delay for 30 seconds
       }
     } catch (error) {
       console.error("Cron job error:", error.message);
